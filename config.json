@@ -4,60 +4,27 @@
     "1F": {
       "image": "1F.jpg",
       "widthMeters": 10,
-      "heightMeters": 10,
-      "mapNorthDeg": 0,
-      "points": [
-        {
-          "id": "P01",
-          "label": "地点1",
-          "note": "",
-          "nx": 0.30,
-          "ny": 0.30
-        },
-        {
-          "id": "P02",
-          "label": "地点2",
-          "note": "",
-          "nx": 0.70,
-          "ny": 0.70
-        }
-      ]
+      "heightMeters": 10
     },
     "2F": {
       "image": "2F.jpg",
       "widthMeters": 10,
-      "heightMeters": 10,
-      "mapNorthDeg": 0,
-      "points": [
-        {
-          "id": "P01",
-          "label": "地点1",
-          "note": "",
-          "nx": 0.50,
-          "ny": 0.50
-        }
-      ]
+      "heightMeters": 10
     },
     "3F": {
       "image": "3F.jpg",
       "widthMeters": 10,
-      "heightMeters": 10,
-      "mapNorthDeg": 0,
-      "points": []
+      "heightMeters": 10
     },
     "4F": {
       "image": "4F.jpg",
       "widthMeters": 10,
-      "heightMeters": 10,
-      "mapNorthDeg": 0,
-      "points": []
+      "heightMeters": 10
     },
     "5F": {
       "image": "5F.jpg",
       "widthMeters": 10,
-      "heightMeters": 10,
-      "mapNorthDeg": 0,
-      "points": []
+      "heightMeters": 10
     }
   }
 }
