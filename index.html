@@ -418,6 +418,16 @@
       return Object.keys(config.floors);
     }
 
+    function resetAnchor() {
+      anchor.enabled = false;
+      anchor.floor = null;
+      anchor.baseLat = null;
+      anchor.baseLon = null;
+      anchor.baseNx = 0.5;
+      anchor.baseNy = 0.5;
+      anchor.label = "";
+    }
+
     function updateModeButtons() {
       gpsBtn.classList.toggle("mode-on", gpsEnabled);
       qrBtn.classList.toggle("mode-on", qrEnabled);
@@ -606,14 +616,21 @@
     }
 
     function switchFloor(floor) {
+      if (gpsEnabled) {
+        stopGPSInternal();
+      }
+
+      resetAnchor();
+
       currentFloor = floor;
       currentPosition.floor = floor;
+
       setMapImageForFloor(floor);
       updateFloorButtons();
       updateAdminFields();
 
       mapImage.onload = () => {
-        renderPosition();
+        setNormalizedPosition(currentFloor, 0.5, 0.5, "現在地");
         updateStatus(`状態: ${floor}を表示中`);
       };
     }
@@ -752,11 +769,14 @@
 
     function stopGPSInternal() {
       gpsEnabled = false;
+
       if (watchId !== null) {
         navigator.geolocation.clearWatch(watchId);
         watchId = null;
       }
+
       accuracyCircle.style.display = "none";
+      updateModeButtons();
       updateStatus("状態: GPS追従停止");
     }
 
@@ -810,6 +830,7 @@
 
       watchId = navigator.geolocation.watchPosition(
         (pos) => {
+          if (!gpsEnabled) return;
           if (Date.now() < ignoreGpsUntil) return;
 
           const lat = pos.coords.latitude;
@@ -842,8 +863,14 @@
           const targetNx = Math.max(0, Math.min(1, rawNx));
           const targetNy = Math.max(0, Math.min(1, rawNy));
 
+          if (currentFloor !== anchor.floor) {
+            currentFloor = anchor.floor;
+            setMapImageForFloor(currentFloor);
+            updateFloorButtons();
+            updateAdminFields();
+          }
+
           const alpha = 0.20;
-          currentFloor = anchor.floor;
           currentPosition = {
             floor: anchor.floor,
             nx: currentPosition.nx + (targetNx - currentPosition.nx) * alpha,
@@ -852,7 +879,6 @@
           };
 
           renderPosition();
-          updateFloorButtons();
 
           updateStatus(
             `状態: GPS追従中<br>` +
