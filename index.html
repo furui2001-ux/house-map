@@ -61,6 +61,12 @@
       border-color: #d32f2f;
     }
 
+    button.point-on {
+      background: #2e7d32;
+      color: white;
+      border-color: #2e7d32;
+    }
+
     #status {
       margin-top: 10px;
       font-size: 13px;
@@ -111,7 +117,7 @@
 
     .point-row {
       display: grid;
-      grid-template-columns: 70px 1fr 90px 90px auto;
+      grid-template-columns: 70px 1fr 1fr 90px 90px auto auto;
       gap: 8px;
       align-items: center;
       margin-bottom: 8px;
@@ -284,6 +290,7 @@
       <button id="gpsBtn" onclick="toggleGPS()">GPS追従</button>
       <button id="qrBtn" onclick="toggleQR()">QR補正</button>
       <button id="manualBtn" onclick="toggleManualMode()">手動補正</button>
+      <button id="pointBtn" onclick="togglePointMode()" style="display:none;">地点追加</button>
       <button id="adminBtn" onclick="toggleAdminPanel()" style="display:none;">管理者設定</button>
     </div>
 
@@ -319,9 +326,11 @@
     <div id="pointsList"></div>
 
     <div style="margin:10px 0;font-size:13px;line-height:1.7;color:#555;">
-      管理者モードでは、手動補正で任意地点を追加できます。<br>
-      地点はドラッグ移動・名前変更・QR文字列生成ができます。<br>
-      利用者モードでは地点ラベルと黒ラベルは表示されません。
+      管理者モードでは、<br>
+      ・手動補正 = 現在地補正のみ<br>
+      ・地点追加 = 新しい地点を登録<br>
+      に分かれています。<br>
+      地点はドラッグ移動・名前変更・メモ編集・QR文字列生成ができます。
     </div>
 
     <textarea id="configOutput"></textarea>
@@ -362,6 +371,7 @@
     const gpsBtn = document.getElementById("gpsBtn");
     const qrBtn = document.getElementById("qrBtn");
     const manualBtn = document.getElementById("manualBtn");
+    const pointBtn = document.getElementById("pointBtn");
     const adminBtn = document.getElementById("adminBtn");
 
     const adminCurrentFloor = document.getElementById("adminCurrentFloor");
@@ -383,6 +393,7 @@
     let gpsEnabled = false;
     let qrEnabled = false;
     let manualMode = false;
+    let pointMode = false;
     let adminOpen = false;
     let headingEnabled = false;
     let isAdmin = false;
@@ -432,11 +443,13 @@
       gpsBtn.classList.toggle("mode-on", gpsEnabled);
       qrBtn.classList.toggle("mode-on", qrEnabled);
       manualBtn.classList.toggle("manual-on", manualMode);
+      pointBtn.classList.toggle("point-on", pointMode);
       adminBtn.classList.toggle("mode-on", adminOpen);
 
       gpsBtn.textContent = gpsEnabled ? "GPS追従中" : "GPS追従";
       qrBtn.textContent = qrEnabled ? "QR読取中" : "QR補正";
       manualBtn.textContent = manualMode ? "手動補正中" : "手動補正";
+      pointBtn.textContent = pointMode ? "地点追加中" : "地点追加";
       adminBtn.textContent = adminOpen ? "管理者設定中" : "管理者設定";
     }
 
@@ -521,9 +534,11 @@
         row.className = "point-row";
         row.innerHTML = `
           <div>${p.id}</div>
-          <input value="${p.label}" data-type="label" data-id="${p.id}">
+          <input value="${p.label}" data-type="label" data-id="${p.id}" placeholder="地点名">
+          <input value="${p.note || ""}" data-type="note" data-id="${p.id}" placeholder="メモ">
           <input value="${p.nx}" data-type="nx" data-id="${p.id}">
           <input value="${p.ny}" data-type="ny" data-id="${p.id}">
+          <button data-type="qr" data-id="${p.id}">QR</button>
           <button data-type="delete" data-id="${p.id}">削除</button>
         `;
         pointsList.appendChild(row);
@@ -537,6 +552,7 @@
           if (!p) return;
 
           if (type === "label") p.label = e.target.value;
+          if (type === "note") p.note = e.target.value;
           if (type === "nx") p.nx = Number(e.target.value);
           if (type === "ny") p.ny = Number(e.target.value);
 
@@ -548,11 +564,20 @@
       pointsList.querySelectorAll("button").forEach(btn => {
         btn.addEventListener("click", (e) => {
           const id = e.target.dataset.id;
-          getFloorConfig(currentFloor).points =
-            getFloorConfig(currentFloor).points.filter(p => p.id !== id);
-          renderPoints();
-          renderPointsList();
-          exportConfigToTextarea();
+          const type = e.target.dataset.type;
+
+          if (type === "qr") {
+            generateQrText(id);
+            return;
+          }
+
+          if (type === "delete") {
+            getFloorConfig(currentFloor).points =
+              getFloorConfig(currentFloor).points.filter(p => p.id !== id);
+            renderPoints();
+            renderPointsList();
+            exportConfigToTextarea();
+          }
         });
       });
     }
@@ -615,22 +640,49 @@
       renderPosition();
     }
 
+    async function stopQrScanInternal() {
+      try {
+        if (qrScanner && qrScanner.isScanning) {
+          await qrScanner.stop();
+          await qrScanner.clear();
+          qrScanner = null;
+        }
+      } catch (e) {}
+      qrReaderWrap.style.display = "none";
+      qrEnabled = false;
+      updateModeButtons();
+      updateStatus("状態: QR停止");
+    }
+
     function switchFloor(floor) {
       if (gpsEnabled) {
         stopGPSInternal();
       }
 
+      if (qrEnabled) {
+        stopQrScanInternal();
+      }
+
+      manualMode = false;
+      pointMode = false;
       resetAnchor();
 
       currentFloor = floor;
-      currentPosition.floor = floor;
+      currentPosition = {
+        floor: floor,
+        nx: 0.5,
+        ny: 0.5,
+        label: "現在地"
+      };
 
-      setMapImageForFloor(floor);
       updateFloorButtons();
       updateAdminFields();
+      updateModeButtons();
+
+      setMapImageForFloor(floor);
 
       mapImage.onload = () => {
-        setNormalizedPosition(currentFloor, 0.5, 0.5, "現在地");
+        renderPosition();
         updateStatus(`状態: ${floor}を表示中`);
       };
     }
@@ -689,7 +741,7 @@
       qrTextOutput.value = `floor=${currentFloor}&point=${pointId}`;
     }
 
-    function enableAnchor(nx, ny, labelText, lat, lon, addPoint = false) {
+    function enableAnchor(nx, ny, labelText, lat, lon) {
       anchor.enabled = true;
       anchor.floor = currentFloor;
       anchor.baseNx = Number(nx);
@@ -699,40 +751,53 @@
       anchor.label = labelText;
 
       setNormalizedPosition(currentFloor, nx, ny, labelText);
-
-      if (isAdmin && addPoint) {
-        addPointForAdmin(Number(nx), Number(ny));
-      }
     }
 
     function toggleManualMode() {
       manualMode = !manualMode;
+      if (manualMode) pointMode = false;
       updateModeButtons();
       updateStatus(manualMode ? "状態: 手動補正モードON" : "状態: 手動補正モードOFF");
     }
 
+    function togglePointMode() {
+      if (!isAdmin) return;
+      pointMode = !pointMode;
+      if (pointMode) manualMode = false;
+      updateModeButtons();
+      updateStatus(pointMode ? "状態: 地点追加モードON" : "状態: 地点追加モードOFF");
+    }
+
     mapWrap.addEventListener("click", async (event) => {
-      if (!manualMode || draggingPointId) return;
+      if ((!manualMode && !pointMode) || draggingPointId) return;
 
       const rect = mapImage.getBoundingClientRect();
       const nx = (event.clientX - rect.left) / rect.width;
       const ny = (event.clientY - rect.top) / rect.height;
 
-      try {
-        const pos = await getOnePosition();
-        enableAnchor(nx, ny, "手動補正位置", pos.coords.latitude, pos.coords.longitude, true);
-        ignoreGpsUntil = Date.now() + 3000;
-        lastAccuracyMeters = pos.coords.accuracy || 0;
+      if (pointMode) {
+        addPointForAdmin(nx, ny);
+        updateStatus(`状態: 地点を追加しました<br>nx=${nx.toFixed(6)}, ny=${ny.toFixed(6)}`);
+        return;
+      }
 
-        updateStatus(
-          `状態: 手動補正完了<br>` +
-          `階: ${currentFloor}<br>` +
-          `基準GPS: ${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}<br>` +
-          `基準位置: nx=${nx.toFixed(6)}, ny=${ny.toFixed(6)}`
-        );
-      } catch (e) {
-        setNormalizedPosition(currentFloor, nx, ny, "手動補正位置");
-        updateStatus("状態: 手動補正完了（GPS取得なし）");
+      if (manualMode) {
+        try {
+          const pos = await getOnePosition();
+          enableAnchor(nx, ny, "手動補正位置", pos.coords.latitude, pos.coords.longitude);
+          ignoreGpsUntil = Date.now() + 3000;
+          lastAccuracyMeters = pos.coords.accuracy || 0;
+
+          updateStatus(
+            `状態: 手動補正完了<br>` +
+            `階: ${currentFloor}<br>` +
+            `基準GPS: ${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}<br>` +
+            `基準位置: nx=${nx.toFixed(6)}, ny=${ny.toFixed(6)}`
+          );
+        } catch (e) {
+          setNormalizedPosition(currentFloor, nx, ny, "手動補正位置");
+          updateStatus("状態: 手動補正完了（GPS取得なし）");
+        }
       }
     });
 
@@ -844,6 +909,10 @@
             return;
           }
 
+          if (anchor.floor !== currentFloor) {
+            return;
+          }
+
           const metersPerDegLat = 111320;
           const meanLatRad = ((anchor.baseLat + lat) / 2) * Math.PI / 180;
           const metersPerDegLon = 111320 * Math.cos(meanLatRad);
@@ -863,16 +932,9 @@
           const targetNx = Math.max(0, Math.min(1, rawNx));
           const targetNy = Math.max(0, Math.min(1, rawNy));
 
-          if (currentFloor !== anchor.floor) {
-            currentFloor = anchor.floor;
-            setMapImageForFloor(currentFloor);
-            updateFloorButtons();
-            updateAdminFields();
-          }
-
           const alpha = 0.20;
           currentPosition = {
-            floor: anchor.floor,
+            floor: currentFloor,
             nx: currentPosition.nx + (targetNx - currentPosition.nx) * alpha,
             ny: currentPosition.ny + (targetNy - currentPosition.ny) * alpha,
             label: "GPS現在地"
@@ -923,9 +985,10 @@
         const pos = await getOnePosition();
         setMapImageForFloor(currentFloor);
         updateFloorButtons();
+        updateAdminFields();
 
         mapImage.onload = () => {
-          enableAnchor(nx, ny, text, pos.coords.latitude, pos.coords.longitude, false);
+          enableAnchor(nx, ny, text, pos.coords.latitude, pos.coords.longitude);
           ignoreGpsUntil = Date.now() + 3000;
           lastAccuracyMeters = pos.coords.accuracy || 0;
           updateStatus(`状態: QR補正完了`);
@@ -1024,20 +1087,6 @@
       }
     }
 
-    async function stopQrScanInternal() {
-      try {
-        if (qrScanner && qrScanner.isScanning) {
-          await qrScanner.stop();
-          await qrScanner.clear();
-          qrScanner = null;
-        }
-      } catch (e) {}
-      qrReaderWrap.style.display = "none";
-      qrEnabled = false;
-      updateModeButtons();
-      updateStatus("状態: QR停止");
-    }
-
     function toggleAdminPanel() {
       if (!isAdmin) return;
       adminOpen = !adminOpen;
@@ -1067,7 +1116,10 @@
     function applyQuery() {
       const params = new URLSearchParams(window.location.search);
       isAdmin = params.get("admin") === "1";
-      if (isAdmin) adminBtn.style.display = "inline-block";
+      if (isAdmin) {
+        adminBtn.style.display = "inline-block";
+        pointBtn.style.display = "inline-block";
+      }
 
       currentFloor = floorOrder()[0];
       const floor = params.get("floor");
